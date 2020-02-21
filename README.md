@@ -1,6 +1,4 @@
-# Generate Combined Licenses for Swift PM Dependencies
-
-Generate a single `.json` file with the licenses for all Swift Package Manager dependencies of an Xcode Project.
+**Generate a single `.json` file with the licenses of all Swift Package Manager dependencies of an Xcode project**
 
 * Python 3
 * Swift Package Manager dependencies only
