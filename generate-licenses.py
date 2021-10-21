@@ -5,7 +5,7 @@
     Generate a single .json file with the licenses for
     all Swift Package Manager dependencies of an Xcode Project.
 
-    :usage: ./licenses.py -b $BUILD_DIR -o licenses.json
+    :usage: ./licenses.py -b $BUILD_DIR -p $PROJECT_DIR/ProjectName.xcodeproj -o $SRCROOT/licenses.json
 
     :author: Seb Jachec (https://twitter.com/iamsebj)
 '''
@@ -16,9 +16,10 @@ from glob import glob
 import json
 import os.path
 from sys import argv
+import urlparse
 
 
-__version__ = '0.1'
+__version__ = '0.2'
 DESCRIPTION = '''Generate a single .json file with the licenses for
  all Swift Package Manager dependencies of an Xcode Project.'''
 
@@ -34,6 +35,22 @@ def output_file_type(string):
             'Output file path must contain .json extension')
     return string
 
+def xcode_proj_type(string):
+    if not os.path.isdir(string):
+        raise ArgumentTypeError('Invalid project path: % s' % string)
+    if '.xcodeproj' not in string:
+        raise ArgumentTypeError(
+            'Invalid --project_file argument: % s' % string)
+    return string
+
+def xcode_workspace_type(string):
+    if not os.path.isdir(string):
+        raise ArgumentTypeError('Invalid project path: % s' % string)
+    if '.xcworkspace' not in string:
+        raise ArgumentTypeError(
+            'Invalid --workspace_file argument: % s' % string)
+    return string
+
 
 def main(_):
     parser = ArgumentParser(description=DESCRIPTION)
@@ -47,6 +64,16 @@ def main(_):
                         metavar='output_file',
                         help='path to the .json licenses file to be generated',
                         type=output_file_type)
+    parser.add_argument('-p', '--project-file',
+                        dest='project_file',
+                        metavar='project_file',
+                        help='path to the .xcodeproj',
+                        type=xcode_proj_type)
+    parser.add_argument('-w', '--workspace-file',
+                        dest='workspace_file',
+                        metavar='workspace_file',
+                        help='path to the .xcworkspace',
+                        type=xcode_workspace_type)
     parser.add_argument('--version', action='version',
                         version='%(prog)s {version}'.format(version=__version__))
 
@@ -55,11 +82,28 @@ def main(_):
 
     args = parser.parse_args()
 
+    # Read all licenses from derived data folder where SPM has checked out the source for each one
     licenses_search_dir = packages_checkouts_dir(args.build_dir_path)
-    data = licenses_from_dir(licenses_search_dir)
+    licenses_info = licenses_from_dir(licenses_search_dir)
 
-    with open(args.output_file, 'w') as output_file:
-        json.dump(data, output_file, ensure_ascii=False, indent=4)
+    if args.project_file:
+        # Read Package.resolved file for the project to get name, url and version information for each dependency
+        package_path = resolved_package_path_from_proj(args.project_file)
+    elif args.workspace_file:
+        # Read Package.resolved file for the workspace to get name, url and version information for each dependency
+        package_path = resolved_package_path_from_workspace(args.workspace_file)
+    else:
+        # No project/workspace specified so return licenses from derived data
+        # This ensures backwards compatability 
+        write_to_output(licenses_info, args.output_file)
+        return 0
+
+    packages = list(map(dependency_from_resolved_package, load_resolved_packages(package_path)))
+
+    # Combine the licenses with the package information
+    update_packages_with_licenses(packages, licenses_info)
+
+    write_to_output(packages, args.output_file)
 
     return 0
 
@@ -69,12 +113,20 @@ def packages_checkouts_dir(build_directory):
     checkouts_dir = os.path.join(derived_data_dir, 'SourcePackages', 'checkouts')
     return checkouts_dir
 
+def resolved_package_path_from_proj(proj_directory):
+    # Check *.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+    package_path = os.path.join(proj_directory, 'project.xcworkspace', 'xcshareddata', 'swiftpm', 'Package.resolved')
+    return package_path
+
+def resolved_package_path_from_workspace(workspace_directory):
+    # Check *.xcworkspace/xcshareddata/swiftpm/Package.resolved
+    package_path = os.path.join(workspace_directory, 'xcshareddata', 'swiftpm', 'Package.resolved')
+    return package_path
+
 def licenses_from_dir(directory):
     license_paths = license_paths_from_dir(directory)
 
-    return {
-        'licenses': list(map(license_dict_from_file, license_paths))
-    }
+    return list(map(license_dict_from_file, license_paths))
 
 
 def is_license_file(path):
@@ -98,6 +150,40 @@ def license_dict_from_file(path):
         'libraryName': parent_directory_name,
         'text': text
     }
+
+def load_resolved_packages(path):
+    with open(path, 'r') as file:
+        text = file.read()
+
+    packages_data = json.loads(text)
+    return packages_data['object']['pins']
+
+def dependency_from_resolved_package(package):
+    return {
+        'name': package['package'],
+        'version': package['state']['version'],
+        'url': package['repositoryURL']
+        }
+
+def extract_repo_name_from_url(url):
+    url_components = urlparse.urlparse(url)
+    path = url_components.path
+    repo_name = path.rpartition('/')[-1].replace('.git', '')
+    return repo_name
+
+def update_packages_with_licenses(packages, licenses_info):
+    for package in packages:
+        url = package['url']
+        repo_name = extract_repo_name_from_url(url)
+        matchingLicenseInfo = filter(lambda x: x['libraryName'] == repo_name, licenses_info)
+        if matchingLicenseInfo:
+            package['text'] = matchingLicenseInfo[0]['text']
+            # Keeping libraryName for backwards compatability
+            package['libraryName'] = matchingLicenseInfo[0]['libraryName']
+
+def write_to_output(licenses_list, output_file):
+    with open(output_file, 'w') as output_file:
+        json.dump({'licenses': licenses_list}, output_file, ensure_ascii=False, indent=4)
 
 
 if __name__ == '__main__':
