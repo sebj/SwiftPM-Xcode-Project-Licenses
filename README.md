@@ -18,13 +18,13 @@ As part of an Xcode target's 'Run Script' build phase:
 
 ### Notes
 
-- If both options are specified, `-w` will be ignored 
-
-- `libraryName` is the name of the repo and `name` is the name of the SPM Package as defined be the dependency in `Package.swift` 
-
-- `text` field will be missing if a dependency does not provice a license file at the root of the repo
+- If both the project (`-p`) and workspace (`-w`) arguments are specified, then the workspace (`-w`) will be ignored
 
 ## Output Format
+
+- `libraryName` is the name of the repo and `name` is the name of the SPM Package as defined as defined in the dependency's `Package.swift`
+
+- `text` field will be missing if a dependency does not provide a license file at the root of the repo
 
 ```json
 {

@@ -82,7 +82,7 @@ def main(_):
 
     args = parser.parse_args()
 
-    # Read all licenses from dervied data folder where SPM has checked out the source for each one
+    # Read all licenses from derived data folder where SPM has checked out the source for each one
     licenses_search_dir = packages_checkouts_dir(args.build_dir_path)
     licenses_info = licenses_from_dir(licenses_search_dir)
 
